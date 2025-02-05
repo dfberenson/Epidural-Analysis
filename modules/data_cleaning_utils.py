@@ -1,6 +1,28 @@
 import pandas as pd
 import modules.regex_utils as regex_utils
 
+def print_encounter(df, encounter_id):
+    columns = [
+    'epic_pmrn',
+    "best_timestamp",
+    "delivery_datetime",
+    "anes_procedure_type_2253",
+    "failed_catheter",
+    "true_procedure_type",
+    "NotePurposeDSC",
+    "Regulated_Anesthesiologist_Name",
+    "Regulated_Resident_Name",
+    "anes_procedure_encounter_id_2273",
+    "anes_procedure_note_id_2260",
+    "near_duplicate_note_ids",
+    "is_worse_near_duplicate",
+    "subsequent_proof_of_failure_note_id",
+    ]
+    existing_cols = [col for col in columns if col in df.columns]
+    print(df.loc[df['anes_procedure_encounter_id_2273'] == encounter_id, existing_cols])
+    print()
+    print()
+
 def explode_separated_procedure_notes(
     df: pd.DataFrame,
     anes_procedure_cols: list,
@@ -120,3 +142,82 @@ def add_delivery_datetime(df):
     df['delivery_datetime'] = pd.to_datetime(delivery_date + ' ' + delivery_time,utc=True)
     return df
 
+def fix_procedure_dos_datetime(df):
+    dos_dts_tz_stripped = strip_tz_from_col(df['anes_procedure_dos_dts_2261'])
+    dos_dts = pd.to_datetime(dos_dts_tz_stripped)
+    df['dos_dts'] = dos_dts
+    return df
+
+def label_and_drop_worse_versions_of_duplicates(df: pd.DataFrame, anes_procedure_cols: list, minute_offset = 0, drop=True):
+    """
+    Go through each encounter to label and delete duplicates
+    Duplicates are defined as notes with the same procedure type that are within a certain minute_offset
+    """
+    minimal_df = df[['anes_procedure_encounter_id_2273','anes_procedure_note_id_2260','anes_procedure_type_2253','best_timestamp']]
+    minimal_df.loc[:,'has_near_duplicate'] = 0
+    minimal_df.loc[:,'near_duplicate_note_ids'] = None
+    minimal_df.loc[:,'time_gap'] = None
+    minimal_df = minimal_df.groupby('anes_procedure_encounter_id_2273').apply(lambda x: label_near_duplicate_notes(x, minute_offset = minute_offset), include_groups = False)
+    minimal_df = minimal_df.reset_index('anes_procedure_encounter_id_2273')
+    minimal_df.loc[:,'blank_anes_procedure_element_col_counts'] = df[anes_procedure_cols].isnull().sum(axis=1)
+    minimal_df.loc[:,'is_worse_near_duplicate'] = minimal_df['has_near_duplicate']
+    minimal_df = minimal_df.groupby('near_duplicate_note_ids').apply(label_worse_near_duplicates, include_groups = False)
+    minimal_df = minimal_df.reset_index('near_duplicate_note_ids')
+    if drop:
+        minimal_df = minimal_df.loc[minimal_df['is_worse_near_duplicate'] == 0, :]
+    return inner_merge(df, minimal_df)
+
+def inner_merge(df1, df2):
+    new_cols = [c for c in df2.columns if c not in df1.columns]
+    return pd.merge(df1, df2[new_cols], left_index=True, right_index=True, how='inner')
+
+def check_if_near_duplicate(row1, row2, compare_cols, minute_offset):
+    """
+    Compare two rows and return True if their timestamps are within minute_offset
+    and their compare_cols match
+    """
+    for col in compare_cols:
+        if not pd.isnull(row1[col]) and not pd.isnull(row2[col]):
+            if row1[col] != row2[col]:
+                return False
+    if abs(row1['best_timestamp'] - row2['best_timestamp']) > pd.Timedelta(minutes=minute_offset):
+        return False
+    return True
+
+
+def label_near_duplicate_notes(encounter, minute_offset = 0):
+    """
+    Label near_duplicate notes within an encounter using the check_if_near_duplicate function
+    """
+    indices = encounter.index.tolist()
+    for i in range(len(indices)):
+        base_idx = indices[i]
+        base_row = encounter.loc[base_idx]
+        has_near_duplicate = 0
+        near_duplicates = [base_row['anes_procedure_note_id_2260']]
+        time_gap = []
+
+        for j in range(len(indices)):
+            if i == j:
+                continue # don't identify self-duplicates
+            compare_idx = indices[j]
+            compare_row = encounter.loc[compare_idx]
+
+
+            if check_if_near_duplicate(base_row, compare_row, compare_cols=['anes_procedure_type_2253'], minute_offset = minute_offset):
+                has_near_duplicate = 1
+                near_duplicates.append(compare_row['anes_procedure_note_id_2260'])
+                time_gap = abs(compare_row['best_timestamp'] - base_row['best_timestamp'])
+
+        encounter.at[base_idx, 'has_near_duplicate'] = has_near_duplicate
+        encounter.at[base_idx, 'near_duplicate_note_ids'] = str(sorted(near_duplicates))
+        encounter.at[base_idx, 'time_gap'] = str(time_gap)
+
+    return encounter
+
+def label_worse_near_duplicates(near_duplicate_set):
+    """
+    Label the worse near duplicates within a group by setting the 'is_worse_near_duplicate' flag.
+    """
+    near_duplicate_set.at[near_duplicate_set['blank_anes_procedure_element_col_counts'].idxmin(), 'is_worse_near_duplicate'] = 0
+    return near_duplicate_set
