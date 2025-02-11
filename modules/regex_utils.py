@@ -30,3 +30,26 @@ def get_number_of_neuraxial_attempts(note_text):
     return np.nan
   return get_numeric_structured_info_from_full_note('Number of attempts: (\\d+)', note_text)
   # Note: the CSE template does not include this info
+
+def regulate_name(name):
+
+    # Remove degrees and titles
+    name = re.sub(r',?\s*(md|do|mbbs|phd|ms|mba|mph|msc|crna)\b', '', name, flags=re.IGNORECASE)
+
+    # Split last name and first name if comma exists
+    if ',' in name:
+        last, first = name.split(',', 1)
+        name = f"{first.strip()} {last.strip()}"
+
+    # Remove extra spaces
+    name = re.sub(r'\s+', ' ', name).strip()
+
+    # Remove middle names
+    parts = name.split()
+    if len(parts) > 2 :
+      name = f"{parts[0]} {parts[-1]}"
+
+    # Capitalize each part of the name
+    name = name.title()
+
+    return name
