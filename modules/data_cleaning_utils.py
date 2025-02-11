@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import modules.regex_utils as regex_utils
+import random
 
 def print_true_mrn(raw_df, encounter_id):
     print(raw_df.loc[raw_df['PatientEncounterID'] == encounter_id, ['epic_pmrn','DateOfServiceDTS']].iloc[0])
@@ -310,6 +311,7 @@ def classify_encounter_failures(encounter):
     Classify neuraxial catheter failures within an encounter.
     A neuraxial catheter failure is defined as the presence of a neuraxial catheter procedure
     followed by a subsequent neuraxial catheter, spinal, or airway procedure within the same encounter.
+    If the index procedure is not a neuraxial catheter, it will be labeled 0
     """
 
     # Identify rows where 'is_neuraxial_catheter' == 1
@@ -360,6 +362,12 @@ def classify_encounter_failures(encounter):
     return encounter
 
 def label_failed_catheters(df):
+    """
+    Classify neuraxial catheter failures in the dataframe.
+    A neuraxial catheter failure is defined as the presence of a neuraxial catheter procedure
+    followed by a subsequent neuraxial catheter, spinal, or airway procedure within the same encounter.
+    If the index procedure is not a neuraxial catheter, it will be labeled 0.
+    """
     minimal_df = df[['anes_procedure_encounter_id_2273','anes_procedure_note_id_2260','best_timestamp','is_neuraxial_catheter','is_spinal','is_airway']]
     minimal_df['has_subsequent_neuraxial_catheter'] = 0
     minimal_df['has_subsequent_spinal'] = 0
@@ -407,7 +415,7 @@ def prior_catheter_helper(group, type):
     return group
 
 
-def get_pain_scores_prior_to_timestamp(row, best_timestamp_col="best_timestamp"):
+def get_vals_prior_to_timestamp(row, vals_col, times_col, best_timestamp_col="best_timestamp"):
     """
     Extract all pain scores that have timestamp < row[best_timestamp_col].
 
@@ -418,20 +426,20 @@ def get_pain_scores_prior_to_timestamp(row, best_timestamp_col="best_timestamp")
     Returns a list of 'prior' scores or NaN if none exist.
     """
     # Extract the raw strings
-    times_str = row["timeseries_intrapartum_pain_score_datetime_2242"]
-    scores_str = row["timeseries_intrapartum_pain_score_2242"]
+    times_str = row[times_col]
+    vals_str = row[vals_col]
 
     # If either is missing, return NaN
-    if pd.isna(times_str) or pd.isna(scores_str):
+    if pd.isna(times_str) or pd.isna(vals_str):
         return np.nan
 
     # Convert to lists
     times_list = times_str.split("|")
-    scores_list = scores_str.split("|")
+    vals_list = vals_str.split("|")
 
     # Safely convert both times and best_timestamp to datetime
     try:
-        times_dt = pd.to_datetime(times_list,utc=True)
+        times_dt = pd.to_datetime(times_list,utc=True,format='mixed')
         # This assumes your row also has a column called best_timestamp_col
         best_dt = pd.to_datetime(row[best_timestamp_col])
     except:
@@ -439,18 +447,32 @@ def get_pain_scores_prior_to_timestamp(row, best_timestamp_col="best_timestamp")
         return np.nan
 
     # Filter out all scores whose timestamp is strictly less than best_timestamp
-    prior_scores = []
-    for t, s in zip(times_dt, scores_list):
+    prior_vals = []
+    for t, v in zip(times_dt, vals_list):
         if t < best_dt:
-            prior_scores.append(float(s))
+            prior_vals.append(float(v))
 
     # If no scores remain, return NaN, else return them joined or as list
-    return prior_scores if prior_scores else np.nan
+    return prior_vals if prior_vals else np.nan
 
 def handle_pain_scores(df):
-    df["prior_pain_scores"] = df.apply(get_pain_scores_prior_to_timestamp, axis=1)
+    """
+    Extract the list of pain scores that occurred before the best timestamp.
+    Returns the maximum of those scores, divided by 10 (since the scores are reported in the data as 0-100).
+    """
+    df["prior_pain_scores"] = df.apply(get_vals_prior_to_timestamp, vals_col = 'timeseries_intrapartum_pain_score_2242', times_col = 'timeseries_intrapartum_pain_score_datetime_2242', axis=1)
     df["prior_pain_scores_max"] = df["prior_pain_scores"].apply(
     lambda scores: max(map(float, scores)) if isinstance(scores, list) and scores else np.nan) / 10
+    return df
+
+def handle_cmi_scores(df):
+    """
+    Extract the list of CMI scores that occurred before the best timestamp.
+    Returns the maximum of those scores.
+    """
+    df["prior_ob_cmi_scores"] = df.apply(get_vals_prior_to_timestamp, vals_col = 'ob_cmi_2308', times_col = 'ob_cmi_datetime_2308', axis=1)
+    df["prior_ob_cmi_scores_max"] = df["prior_ob_cmi_scores"].apply(
+    lambda scores: max(map(float, scores)) if isinstance(scores, list) and scores else np.nan)
     return df
 
 def handle_dpe(df):
@@ -481,7 +503,7 @@ def numerify_columns(df, columns_to_convert):
 
 def handle_elapsed_times(df):
     """
-    From the above analyses, procedures where many days elapse between placement and delivery are NOT labor analgesia procedures. They can be totally unrelated procedures like knee surgery, or obstetrical procedures like ECVs, or (rarely) analgesia for false labor. In the latter case, if labor does not progress and the patient returns to antepartum, the anesthesia encounter will termiante and a new encounter will be used for subsequent labor. In that case, an epidural placed in the second encounter will NOT prove failure of the first since it will have a different encounter_id.
+    From my analyses, procedures where many days elapse between placement and delivery are NOT labor analgesia procedures. They can be totally unrelated procedures like knee surgery, or obstetrical procedures like ECVs, or (rarely) analgesia for false labor. In the latter case, if labor does not progress and the patient returns to antepartum, the anesthesia encounter will termiante and a new encounter will be used for subsequent labor. In that case, an epidural placed in the second encounter will NOT prove failure of the first since it will have a different encounter_id.
 
     For these reasons, I eliminate rows where there is more than 7 days between placement and delivery.
 
@@ -497,6 +519,7 @@ def handle_elapsed_times(df):
     df['placement_to_delivery_hours'] = (df['delivery_datetime'] - df['best_timestamp']).dt.total_seconds() / 3600
     df['placement_to_delivery_hours'] = np.where((df['placement_to_delivery_hours'] > -1) & (df['placement_to_delivery_hours'] <= 7*24),
                                              df['placement_to_delivery_hours'], np.nan)
+    df['rom_to_placement_hours'] = df['rom_thru_delivery_hours'] - df['placement_to_delivery_hours']
     return df
 
 def handle_anesthesiologists(df):
