@@ -144,7 +144,7 @@ def create_table_one(cat_table, num_table):
         q1 = num_table.loc[var_name, "Q1"]
         q3 = num_table.loc[var_name, "Q3"]
 
-        summary_str = f"{median_val:.2f} [{q1:.2f} - {q3:.2f}]"
+        summary_str = f"{median_val:.2f} [{q1:.2f} - {q3:.2f}] (NaN count: {num_table.loc[var_name, 'count_nan']})"
         table_rows.append([var_name, summary_str])
 
     # 2) Categorical variables

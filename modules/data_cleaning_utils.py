@@ -524,12 +524,17 @@ def handle_elapsed_times(df):
 
 def handle_anesthesiologists(df):
     """
-    Regulate names and count prior catheters
+    Regulate names and count prior catheters.
+    Define highly experienced anesthesiologists as 400+ epidurals, moderately experienced as 40+ epidurals, and highly experienced residents as 40+ epidurals.
     """
     df['Regulated_Anesthesiologist_Name'] = df['anes_procedure_anesthesiologist_2255'].dropna().apply(regex_utils.regulate_name)
     df['Regulated_Resident_Name'] = df['anes_procedure_resident_2256'].dropna().apply(regex_utils.regulate_name)
     df['Regulated_Anesthesiologist_Name'] = df['Regulated_Anesthesiologist_Name'].replace('', np.nan)
     df['Regulated_Resident_Name'] = df['Regulated_Resident_Name'].replace('', np.nan)
+    
+    df['has_resident'] = df['Regulated_Resident_Name'].notnull()
+    df['has_anesthesiologist'] = df['Regulated_Anesthesiologist_Name'].notnull()
+
     df = df.sort_values('best_timestamp')
     df['current_anesthesiologist_catheter_count'] = (
         df.groupby('Regulated_Anesthesiologist_Name')['is_neuraxial_catheter']
@@ -539,17 +544,36 @@ def handle_anesthesiologists(df):
         df.groupby('Regulated_Resident_Name')['is_neuraxial_catheter']
         .cumsum()
     )
-    df['highly_experienced_anesthesiologist'] = np.where(df['current_anesthesiologist_catheter_count'] > 500, 'yes',
-                                                    np.where(df['current_anesthesiologist_catheter_count'] <= 500, 'no', 'none'))
-    df['moderately_experienced_anesthesiologist'] = np.where(df['current_anesthesiologist_catheter_count'] > 100, 'yes',
-                                                        np.where(df['current_anesthesiologist_catheter_count'] <= 100, 'no', 'none'))
-    df['highly_experienced_resident'] = np.where(df['current_resident_catheter_count'] > 50, 'yes',
-                                                    np.where(df['current_resident_catheter_count'] <= 50, 'no', 'none'))
+    df['total_team_catheter_count'] = df['current_anesthesiologist_catheter_count'] + df['current_resident_catheter_count']
+
+    anesthesiologist_conditions = [
+        df['current_anesthesiologist_catheter_count'] >= 400,
+        (df['current_anesthesiologist_catheter_count'] >= 40) & (df['current_anesthesiologist_catheter_count'] < 400),
+        (df['current_anesthesiologist_catheter_count'] >= 0) & (df['current_anesthesiologist_catheter_count'] < 40),
+        df['current_anesthesiologist_catheter_count'].isna()
+        ]   
+    anesthesiologist_choices = ['high', 'moderate', 'low', 'no_anesthesiologist']
+    df['anesthesiologist_experience_category'] = np.select(anesthesiologist_conditions, anesthesiologist_choices, default='no_anesthesiologist')
+
+    resident_conditions = [
+        df['current_resident_catheter_count'] >= 40,
+        (df['current_resident_catheter_count'] >= 0) & (df['current_resident_catheter_count'] < 40),
+        df['current_resident_catheter_count'].isna()
+        ]   
+    resident_choices = ['high', 'low', 'no_resident']
+    df['resident_experience_category'] = np.select(resident_conditions, resident_choices, default='no_resident')
+
     return df
 
 def engineer_categorical_variables(df):
     df['has_scoliosis'] = df['icd_scoliosis_2053'] == True
     df['has_dorsalgia'] = df['icd_dorsalgia_2104'] == True
+
+    df['scoliosis_and_highly_experienced_resident'] = (df['has_scoliosis'] == True) & (df['resident_experience_category'] == 'high')
+    df['scoliosis_and_lowly_experienced_resident'] = (df['has_scoliosis'] == True) & (df['resident_experience_category'] == 'low')
+    df['scoliosis_and_no_resident'] = (df['has_scoliosis'] == True) & (df['resident_experience_category'] == 'no_resident')
+    df['scoliosis_and_highly_experienced_anesthesiologist'] = (df['has_scoliosis'] == True) & (df['anesthesiologist_experience_category'] == 'high')
+
 
     # prompt: create a column "has_back_problems" that is 1 where any of the following are True, else 0. Handle NaN.
     # Define the columns related to back problems
