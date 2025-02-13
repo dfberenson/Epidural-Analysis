@@ -493,6 +493,7 @@ def handle_lor_depth(df):
     print(df.sort_values(by='lor_depth',ascending=False).head(100)['anes_procedure_catheter_depth_2266'].to_list())
     """
     df['lor_depth'] = df['anes_procedure_lor_depth_2265'].replace('', np.nan).astype(float)
+    print(df['lor_depth'].describe(percentiles=[0.001,0.01,0.05,0.95,0.99,0.999,0.9999]))
     df['lor_depth'] = np.where(df['lor_depth'] > 20, df['lor_depth'] / 10, df['lor_depth'])
     return df
 
@@ -501,9 +502,12 @@ def numerify_columns(df, columns_to_convert):
         df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
     return df
 
-def handle_elapsed_times(df):
+def calculate_and_narrow_time_from_placement_to_delivery(df):
     """
-    From my analyses, procedures where many days elapse between placement and delivery are NOT labor analgesia procedures. They can be totally unrelated procedures like knee surgery, or obstetrical procedures like ECVs, or (rarely) analgesia for false labor. In the latter case, if labor does not progress and the patient returns to antepartum, the anesthesia encounter will termiante and a new encounter will be used for subsequent labor. In that case, an epidural placed in the second encounter will NOT prove failure of the first since it will have a different encounter_id.
+    From my analyses, procedures where many days elapse between placement and delivery are NOT labor analgesia procedures.
+    They can be totally unrelated procedures like knee surgery, or obstetrical procedures like ECVs, or (rarely) analgesia for false labor.
+    In the latter case, if labor does not progress and the patient returns to antepartum, the anesthesia encounter will terminate and a new encounter will be used for subsequent labor.
+    In that case, an epidural placed in the second encounter will NOT prove failure of the first since it will have a different encounter_id.
 
     For these reasons, I eliminate rows where there is more than 7 days between placement and delivery.
 
@@ -511,14 +515,24 @@ def handle_elapsed_times(df):
 
     A more thorough algorithm could look at the timing of Anesthesia Stop compared to delivery, and/or confirm that the title of the anesthesia encounter is Labor Epidural or Cesarean Section.
     """
+    df['placement_to_delivery_hours'] = (df['delivery_datetime'] - df['best_timestamp']).dt.total_seconds() / 3600
+    print('Before adjustment:')
+    print(df['placement_to_delivery_hours'].describe(percentiles=[0.01,0.02,0.05,0.25,0.5,0.75,0.95,0.97,0.98,0.99]))
+    df['placement_to_delivery_hours'] = np.where((df['placement_to_delivery_hours'] > -1) & (df['placement_to_delivery_hours'] <= 7*24),
+                                             df['placement_to_delivery_hours'], np.nan)
+    print('After adjustment:')
+    print(df['placement_to_delivery_hours'].describe(percentiles=[0.01,0.05,0.25,0.5,0.75,0.95,0.97,0.98,0.99]))
+    return df.dropna(subset=['placement_to_delivery_hours'])
+
+def convert_elapsed_times(df):
+    """
+    Convert elapsed times from seconds to hours
+    """
     df['rom_thru_delivery_hours'] = df['secs_rom_thru_delivery_2197'] / 3600
     # If ROM through Delivery is more than 30 days, assume erroneous and make it NaN
     df['rom_thru_delivery_hours'] = np.where(df['rom_thru_delivery_hours'] <= 30*24, df['rom_thru_delivery_hours'],np.nan)
     df['maternal_age_years'] = (df['best_timestamp'] - df['maternal_dob']).dt.days / 365.25
     df['gestational_age_weeks'] = df['gestational_age_2052'] / 7
-    df['placement_to_delivery_hours'] = (df['delivery_datetime'] - df['best_timestamp']).dt.total_seconds() / 3600
-    df['placement_to_delivery_hours'] = np.where((df['placement_to_delivery_hours'] > -1) & (df['placement_to_delivery_hours'] <= 7*24),
-                                             df['placement_to_delivery_hours'], np.nan)
     df['rom_to_placement_hours'] = df['rom_thru_delivery_hours'] - df['placement_to_delivery_hours']
     return df
 
@@ -566,6 +580,13 @@ def handle_anesthesiologists(df):
     return df
 
 def engineer_categorical_variables(df):
+
+    df['bmi_greater_than_40'] = df['bmi_end_pregnancy_2044'] > 40
+    df['high_bmi_and_highly_experienced_resident'] = (df['bmi_greater_than_40'] == True) & (df['resident_experience_category'] == 'high')
+    df['high_bmi_and_lowly_experienced_resident'] = (df['bmi_greater_than_40'] == True) & (df['resident_experience_category'] == 'low')
+    df['high_bmi_and_no_resident'] = (df['bmi_greater_than_40'] == True) & (df['resident_experience_category'] == 'no_resident')
+    df['high_bmi_and_highly_experienced_anesthesiologist'] = (df['bmi_greater_than_40'] == True) & (df['anesthesiologist_experience_category'] == 'high')
+
     df['has_scoliosis'] = df['icd_scoliosis_2053'] == True
     df['has_dorsalgia'] = df['icd_dorsalgia_2104'] == True
 
@@ -573,6 +594,8 @@ def engineer_categorical_variables(df):
     df['scoliosis_and_lowly_experienced_resident'] = (df['has_scoliosis'] == True) & (df['resident_experience_category'] == 'low')
     df['scoliosis_and_no_resident'] = (df['has_scoliosis'] == True) & (df['resident_experience_category'] == 'no_resident')
     df['scoliosis_and_highly_experienced_anesthesiologist'] = (df['has_scoliosis'] == True) & (df['anesthesiologist_experience_category'] == 'high')
+
+    df['high_bmi_and_scoliosis'] = (df['bmi_greater_than_40'] == True) & (df['has_scoliosis'] == True)
 
 
     # prompt: create a column "has_back_problems" that is 1 where any of the following are True, else 0. Handle NaN.
@@ -593,6 +616,13 @@ def engineer_categorical_variables(df):
 
     # Create the 'has_back_problems' column
     df['has_back_problems'] = df[back_problem_cols].any(axis=1)
+
+    df['multiple_gestation'] = df['icd_multiple_gestation_2127'] == True
+    df['CS_hx'] = df['icd_c_minus_section_hx_2130'] == True
+    df['high_risk_current_pregnancy'] = df['icd_high_risk_current_2133'] == True
+    df['high_risk_hx'] = df['icd_high_risk_hx_2136'] == True
+    df['iufd'] = df['icd_iufd_2200'] == True
+
 
     df['maternal_race'] = np.select(
     [
