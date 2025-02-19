@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import modules.regex_utils as regex_utils
 import random
+import statsmodels.formula.api as smf
 
 def print_true_mrn(raw_df, encounter_id):
     print(raw_df.loc[raw_df['PatientEncounterID'] == encounter_id, ['epic_pmrn','DateOfServiceDTS']].iloc[0])
@@ -501,6 +502,25 @@ def numerify_columns(df, columns_to_convert):
     for col in columns_to_convert:
         df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
     return df
+
+def engineer_unexpected_delta_LOR(df):
+    """
+    Predict the LOR depth based on the BMI, then compare the predicted LOR depth to the actual LOR depth.
+    """
+    # Fit the linear regression model
+    model = smf.ols(formula='lor_depth ~ bmi_end_pregnancy_2044', data=df).fit()
+
+    # Print out the summary statistics of the regression
+    print(model.summary())
+
+    # Use the regression to create a new column with predicted values
+    df['predicted_lor_depth'] = model.predict(df)
+
+    # Calculate the difference between the predicted and actual values
+    df['unexpected_delta_lor'] = df['lor_depth'] - df['predicted_lor_depth']
+    df['unexpected_delta_lor_squared'] = df['unexpected_delta_lor'] ** 2
+    return df
+    
 
 def calculate_and_narrow_time_from_placement_to_delivery(df):
     """
