@@ -714,13 +714,15 @@ def engineer_categorical_variables(df):
     df['paresthesias_present'] = df['anes_procedure_paresthesias_2270'].apply(lambda x: True if x == 'yes' or x == 'transient' else False)
 
     df['delivery_site'] = np.where(df['delivery_site_2188'] == 'mgb', np.nan, df['delivery_site_2188'])
-    df['delivery_site_bwh'] = df['delivery_site'] == 'bwh'
+    df['delivery_site_is_bwh'] = df['delivery_site'] == 'bwh'
     
     df['labor_induction'] = df[[
     'induction_oxytocin_2189','induction_cervical_balloon_2190','induction_misoprostol_2191','induction_arom_2192','induction_foley_easy_2193']].any(axis=1)
 
-    df['position_posterior_or_transverse'] = (df['fetal_presentation_position_2247'] == 'posterior') | (df['fetal_presentation_position_2247'] == 'transverse')
-    df['presentation_cephalic'] = df['fetal_presentation_category_2243'] == 'cephalic'
+    df['fetal_position'] = df['fetal_presentation_position_2247']
+    df['fetal_presentation'] = df['fetal_presentation_category_2243']
+    df['fetal_position_is_posterior_or_transverse'] = (df['fetal_position'] == 'posterior') | (df['fetal_position'] == 'transverse')
+    df['fetal_presentation_is_cephalic'] = df['fetal_presentation'] == 'cephalic'
 
     return df
 
