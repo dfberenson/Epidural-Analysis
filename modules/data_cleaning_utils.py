@@ -530,6 +530,7 @@ def calculate_and_narrow_time_from_placement_to_delivery(df):
     In that case, an epidural placed in the second encounter will NOT prove failure of the first since it will have a different encounter_id.
 
     For these reasons, I eliminate rows where there is more than 7 days between placement and delivery.
+    I also eliminate rows where there is more than 1 hour between delivery and placement.
 
     Due to the UTC bug discussed above, a true 1859 EPL followed by 1900 delivery would be translated to 2359 EPL AFTER 0000 delivery (without the delivery_date incrementing appropriately)
 
