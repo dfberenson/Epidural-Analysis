@@ -3,6 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.patches import Rectangle
+import matplotlib.lines as mlines
+from sklearn.metrics import roc_curve
+
 
 def describe_dataframe(df):
     """
@@ -239,6 +242,25 @@ def get_dummies_preserve_order(df, categorical_cols):
             result.append(df[[col]])
     return pd.concat(result, axis=1)
 
+PRESET_GROUPS = {
+    'failure': ['failed_catheter','has_subsequent_neuraxial_catheter','has_subsequent_spinal','has_subsequent_airway'],
+    'timing': ['placement_to_delivery_hours','rom_thru_delivery_hours','rom_to_placement_hours'],
+    'maternal_age_gp': ['maternal_age_years','gravidity_2047','parity_2048'],
+    'multiple_gestation_and_labor_induction': ['multiple_gestation','labor_induction'],
+    'baby_size': ['gestational_age_weeks','baby_weight_2196'],
+    'maternal_size': ['bmi_end_pregnancy_2044', 'bmi_greater_than_40', 'maternal_weight_end_pregnancy_2045', 'bmi_before_pregnancy_2161'],
+    'team_composition': ['has_resident','has_anesthesiologist'],
+    'team_catheter_counts': ['current_anesthesiologist_catheter_count','current_resident_catheter_count','total_team_catheter_count'],
+    'bmi_and_experience': ["high_bmi_and_highly_experienced_resident",    "high_bmi_and_lowly_experienced_resident",    "high_bmi_and_no_resident",    "high_bmi_and_highly_experienced_anesthesiologist"],
+    'scoliosis_and_experience': ["scoliosis_and_highly_experienced_resident",    "scoliosis_and_lowly_experienced_resident",    "scoliosis_and_no_resident",    "scoliosis_and_highly_experienced_anesthesiologist"],
+    'back_group': ['high_bmi_and_scoliosis','has_scoliosis','has_dorsalgia','has_back_problems'],
+    'maternal_risk': ['prior_ob_cmi_scores_max','CS_hx','high_risk_current_pregnancy','high_risk_hx','iufd'],
+    'psychosocial_and_ses': ['composite_psychosocial_problems','only_private_insurance','maternal_language_english','marital_status_married_or_partner','country_of_origin_USA','employment_status_fulltime','composite_SES_advantage'],
+    'lor': ['lor_depth','predicted_lor_depth','unexpected_delta_lor','unexpected_delta_lor_squared'],
+    'pain_and_attempts': ['prior_pain_scores_max','paresthesias_present','number_of_neuraxial_attempts','number_of_spinal_attempts'],
+    'prior_catheters': ['prior_failed_catheters_this_enc','prior_failed_catheters_prev_enc','prior_all_catheters_all_enc']
+}
+
 def plot_correlation_heatmap_with_related_groups(
     df, 
     drop_columns=None, 
@@ -285,6 +307,9 @@ def plot_correlation_heatmap_with_related_groups(
     if drop_columns:
         df_copy = df_copy.drop(columns=drop_columns, errors='ignore')
     
+    if additional_groups=='preset':
+        additional_groups = PRESET_GROUPS
+
     # Identify categorical columns.
     categorical_cols = df_copy.select_dtypes(include=['object', 'category']).columns.tolist()
     
@@ -330,7 +355,8 @@ def plot_correlation_heatmap_with_related_groups(
         fmt=fmt, 
         cmap=cmap, 
         square=True,
-        cbar_kws={'shrink': 0.8}
+        cbar_kws={'shrink': 0.8},
+        center=0
     )
     plt.title(title if title is not None else "Correlation Matrix")
     
@@ -652,4 +678,228 @@ def plot_scatter(df, x_axis, y_axis):
     plt.xlabel(x_axis)
     plt.ylabel(y_axis)
     plt.title(f'Scatter Plot of {x_axis} vs {y_axis}')
+    plt.show()
+
+def plot_forest_colored_with_markers(
+    ax, 
+    df, 
+    title='Forest Plot', 
+    x_label='Odds Ratio (99.9% CI)',
+    x_min=0.5, 
+    x_max=1.5
+    ):
+    """
+    Plot a forest chart on 'ax' given a DataFrame 'df' with columns:
+      - 'OR'
+      - 'OR_lower'
+      - 'OR_upper'
+    
+    X-axis is restricted to [x_min, x_max].
+    
+    Rules:
+      - If the center OR is outside [x_min, x_max], skip plotting its dot.
+      - If the OR or any part of its CI is beyond [x_min, x_max], place '<' or '>' at that boundary.
+      - Print "OR X.XX (L.LL, U.UU)" above each data point in the same color.
+      - Color each factor's name on the y-axis to match that factor's color.
+    
+    Color scheme for significance:
+      - red if entire CI > 1
+      - blue if entire CI < 1
+      - black otherwise
+    """
+
+    # Sort by OR if you want smaller/larger ORs in order
+    df = df.sort_values('OR')
+
+    # We'll manually set the y-ticks, one row per factor
+    y_positions = np.arange(len(df))
+
+    # We won't set the yticklabels yet; we'll do them manually to color each label.
+    ax.set_yticks(y_positions)
+    # Temporarily set them all to blank
+    ax.set_yticklabels([""] * len(df))
+
+    # We'll collect the color for each row, so we can color the labels afterward
+    factor_colors = []
+
+    # Plot each factor individually
+    for y_pos, (idx, row) in zip(y_positions, df.iterrows()):
+        or_val = row['OR']
+        ci_low = row['OR_lower']
+        ci_high = row['OR_upper']
+
+        # Decide the color based on significance
+        if ci_low > 1:
+            c = 'red'    # entire CI above 1 => significant risk
+        elif ci_high < 1:
+            c = 'blue'   # entire CI below 1 => significant protective
+        else:
+            c = 'black'  # not significant
+
+        factor_colors.append(c)
+
+        # Check if OR or CI extends beyond the plot range
+        outside_left = (or_val < x_min) or (ci_low < x_min)
+        outside_right = (or_val > x_max) or (ci_high > x_max)
+
+        # If the center OR is out of range, skip the dot
+        center_outside = (or_val < x_min) or (or_val > x_max)
+        dot_fmt = 'none' if center_outside else 'o'
+
+        # Calculate the full error bar from the center
+        left_err = or_val - ci_low
+        right_err = ci_high - or_val
+
+        # Plot the error bar (may or may not include the dot)
+        ax.errorbar(
+            or_val,
+            y_pos,
+            xerr=[[left_err], [right_err]],
+            fmt=dot_fmt,   # skip the dot if center is outside
+            color=c,
+            ecolor=c,
+            capsize=4
+        )
+
+        # Place boundary markers if the OR or any part of CI is outside
+        if outside_left:
+            ax.text(
+                x_min, y_pos, '<', 
+                va='center', ha='right', color=c, fontsize=14
+            )
+        if outside_right:
+            ax.text(
+                x_max, y_pos, '>', 
+                va='center', ha='left', color=c, fontsize=14
+            )
+
+        # Prepare the label "OR X.XX (L.LL - U.UU)"
+        label_str = f"OR {or_val:.2f} ({ci_low:.2f} - {ci_high:.2f})"
+
+        # Place the label just above the data point (or boundary)
+        # We'll define a small offset in Y to shift text "above" the marker
+        label_offset = 0.2  # Adjust as needed
+        label_y = y_pos - label_offset  # axis is inverted => subtract to go "up"
+        ax.text(
+            1.06, label_y,
+            label_str,
+            va='bottom',   # text rises from the point
+            ha='center',
+            color=c,
+            fontsize=10
+        )
+
+    # Now color each factor name using the same color
+    # We already set blank y-ticklabels, so let's manually place them:
+    for y_pos, (idx, c) in zip(y_positions, zip(df.index, factor_colors)):
+        # We'll place the text a bit left of x_min so it doesn't collide with the plot
+        ax.text(
+            x_min - 0.05, y_pos,
+            idx,
+            va='center', ha='right',
+            color=c,
+            fontsize=10
+        )
+
+    # Draw a vertical line at OR=1
+    ax.axvline(x=1, color='gray', linestyle='--')
+
+    # Invert y-axis so the top row is at the top
+    ax.invert_yaxis()
+
+    # Limit the x-axis
+    ax.set_xlim([x_min, x_max])
+
+    # Add labels
+    ax.set_xlabel(x_label, fontsize=14)
+    ax.set_title(title, fontsize=16)
+
+def show_forest_plots(patient_df, procedural_df):
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(15, 8))
+
+    plot_forest_colored_with_markers(
+        ax=ax1,
+        df=patient_df,
+        title='Patient Factors',
+        x_label='Odds Ratio (99.9% CI)',
+        x_min=0.5,
+        x_max=1.5
+    )
+
+    plot_forest_colored_with_markers(
+        ax=ax2,
+        df=procedural_df,
+        title='Procedural Factors',
+        x_label='Odds Ratio (99.9% CI)',
+        x_min=0.5,
+        x_max=1.5
+    )
+
+    # Create a manual legend for color interpretation:
+    protect_marker = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
+                                label='Significant protective factor')
+    ns_marker = mlines.Line2D([], [], color='black', marker='o', linestyle='None',
+                            label='Not significant')
+    risk_marker = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
+                                label='Significant risk factor')
+
+    fig.legend(
+        handles=[protect_marker, ns_marker, risk_marker],
+        loc='upper center',
+        bbox_to_anchor=(0.5, 1.05),
+        ncol=3,
+        fontsize=12
+    )
+
+    plt.tight_layout()
+    plt.show() 
+
+def plot_roc_curve(y_tests, y_probas, test_aucs, labels=None, title="ROC Curves", figsize=(6,6)):
+    """
+    Plots one or multiple ROC curves on a single figure.
+    
+    Parameters:
+      y_tests (array-like or list): A single array of true labels or a list of arrays for each ROC curve.
+      y_probas (array-like or list): A single array of predicted probabilities or a list of arrays for each ROC curve.
+      test_aucs (float or list): A single AUC value or a list of AUC values corresponding to each ROC curve.
+      labels (str or list, optional): A label or list of labels for each ROC curve. If provided, the AUC will be appended to each label.
+      title (str, optional): The title of the plot.
+      figsize (tuple, optional): The size of the figure.
+    
+    Raises:
+      ValueError: If the lengths of y_tests, y_probas, and test_aucs do not match, or if labels is provided and its length does not match.
+    """
+    # Wrap non-list inputs in lists
+    if not isinstance(y_tests, (list, tuple)):
+        y_tests = [y_tests]
+    if not isinstance(y_probas, (list, tuple)):
+        y_probas = [y_probas]
+    if not isinstance(test_aucs, (list, tuple)):
+        test_aucs = [test_aucs]
+    if labels is not None and not isinstance(labels, (list, tuple)):
+        labels = [labels]
+    
+    # Error checking for matching lengths
+    if not (len(y_tests) == len(y_probas) == len(test_aucs)):
+        raise ValueError("y_tests, y_probas, and test_aucs must all have the same number of elements.")
+    if labels is not None and len(labels) != len(y_tests):
+        raise ValueError("The number of labels must match the number of ROC curves (y_tests).")
+    
+    plt.figure(figsize=figsize)
+    
+    # Plot each ROC curve
+    for idx, (y_test, y_proba, auc_val) in enumerate(zip(y_tests, y_probas, test_aucs)):
+        fpr, tpr, _ = roc_curve(y_test, y_proba)
+        if labels is not None:
+            curve_label = f"{labels[idx]} (AUC = {auc_val:.2f})"
+        else:
+            curve_label = f"ROC curve (AUC = {auc_val:.2f})"
+        plt.plot(fpr, tpr, label=curve_label)
+    
+    # Plot the reference line for a random classifier
+    plt.plot([0, 1], [0, 1], 'k--', label="Random")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(title)
+    plt.legend(loc="lower right")
     plt.show()
