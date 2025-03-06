@@ -14,6 +14,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score, classification_report
 
+FIGURE_FPATH = "C:\\Users\\User\\OneDrive - Mass General Brigham\\Epidural project\\Figures\\"
+
 def reduce_cols(df):
     reduced_cols = [
     'unique_pt_id','anes_procedure_encounter_id_2273',
@@ -172,6 +174,12 @@ def remove_nums(string):
     Removes numbers from a string.
     """
     return ''.join([i for i in string if not i.isdigit()])
+
+def save_text(text, fname):
+    # Open (or create) a text file in write mode and write the content
+    with open(FIGURE_FPATH + fname + ".txt", "w") as file:
+        file.write(text)
+
 
 def show_text(text):
     # Create a new figure and axis

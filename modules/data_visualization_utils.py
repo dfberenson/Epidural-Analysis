@@ -5,6 +5,9 @@ import seaborn as sns
 from matplotlib.patches import Rectangle
 import matplotlib.lines as mlines
 from sklearn.metrics import roc_curve
+import shap
+
+FIGURE_FPATH = "C:\\Users\\User\\OneDrive - Mass General Brigham\\Epidural project\\Figures\\"
 
 
 def describe_dataframe(df):
@@ -358,7 +361,11 @@ def plot_correlation_heatmap_with_related_groups(
         cbar_kws={'shrink': 0.8},
         center=0
     )
-    plt.title(title if title is not None else "Correlation Matrix")
+
+    if title is None:
+        title = "Correlation Matrix"
+
+    plt.title(title, fontsize = 20)
     
     n = len(final_order)
     ax.set_xticks([i + 0.5 for i in range(n)])
@@ -439,6 +446,7 @@ def plot_correlation_heatmap_with_related_groups(
                                 facecolor=group_colors[group_name], edgecolor=None, alpha=box_alpha)
                 vax.add_patch(v_rect)
     
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches="tight")
     plt.show()
     # return correlation_matrix
 
@@ -462,9 +470,9 @@ def plot_histogram(df, col, bin_space=1, xtick_space=1, xlabel=None, ylabel='Cou
     plt.ylabel(ylabel)
     plt.xticks(xticks)
     if title is None:
-        plt.title(f'Histogram of {col}')
-    else:
-        plt.title(title)
+        title = f'Histogram of {col}'
+    plt.title(title)
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches = 'tight')
     plt.show()
 
 def plot_stacked_bar_histogram(df, index_col, value_col, index_col_2 = None, sort_by=None, sort_ascending=False,
@@ -528,11 +536,14 @@ def plot_stacked_bar_histogram(df, index_col, value_col, index_col_2 = None, sor
     # Set plot labels and title
     plt.xlabel(xlabel if xlabel is not None else index_col)
     plt.ylabel(ylabel)
-    plt.title(title if title is not None else f'Histogram of {value_col} by {index_col}')
+    if title is None:
+        title = f'Histogram of {value_col} by {index_col}'
+    plt.title(title)
     plt.xticks(rotation=45, ha='right')
     if legend_labels:
         plt.legend(legend_labels)
     plt.tight_layout()
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches = 'tight')
     plt.show()
     
     # Print the crosstab table
@@ -614,13 +625,15 @@ def plot_violin_crosstab_anova(df, index_col, value_col, sort_by=None, sort_asce
     # Set plot labels and title
     plt.xlabel(xlabel if xlabel is not None else index_col)
     plt.ylabel(ylabel if ylabel is not None else value_col)
-    plt.title(title if title is not None else f'Violin Plot of {value_col} by {index_col}')
-    
+    if title is None:
+        title = f'Violin Plot of {value_col} by {index_col}'
+    plt.title(title)
     plt.tight_layout()
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches = 'tight')
     plt.show()
 
 
-def plot_binned_errorbar(df, x_axis, y_axis, bin_size, fill_between=True, errorbar=True):
+def plot_binned_errorbar(df, x_axis, y_axis, bin_size, fill_between=True, errorbar=True, title=None):
     """
     Plots the average of a y-axis variable (with SEM error bars) 
     versus a binned x-axis variable. The plotted values represent the lower edge of each bin.
@@ -630,6 +643,7 @@ def plot_binned_errorbar(df, x_axis, y_axis, bin_size, fill_between=True, errorb
         x_axis (str): The column name to be binned (e.g., 'maternal_age_years').
         y_axis (str): The column name whose mean and SEM are computed (e.g., 'failed_catheter').
         bin_size (numeric): The bin width for grouping the x_axis variable.
+        title (string): Title for the graph
 
     Returns:
         None
@@ -659,9 +673,12 @@ def plot_binned_errorbar(df, x_axis, y_axis, bin_size, fill_between=True, errorb
     plt.ylim(bottom=0)
     plt.xlabel(f'{x_axis} (binned by {bin_size})')
     plt.ylabel(f'Average {y_axis}')
-    plt.title(f'{y_axis} vs. {x_axis} (binned by {bin_size}) with Error Bars')
+    if title is None:
+        title = f'{y_axis} vs. {x_axis} (binned by {bin_size}) with Error Bars'
+    plt.title(title)
     plt.grid(True)
     plt.legend()
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches = 'tight')
     plt.show()
 
 def plot_scatter(df, x_axis, y_axis):
@@ -852,6 +869,7 @@ def show_forest_plots(patient_df, procedural_df):
     )
 
     plt.tight_layout()
+    plt.savefig(FIGURE_FPATH + 'forest plot' + '.png', bbox_inches='tight')
     plt.show() 
 
 def plot_roc_curve(y_tests, y_probas, test_aucs, labels=None, title="ROC Curves", figsize=(6,6)):
@@ -898,8 +916,30 @@ def plot_roc_curve(y_tests, y_probas, test_aucs, labels=None, title="ROC Curves"
     
     # Plot the reference line for a random classifier
     plt.plot([0, 1], [0, 1], 'k--', label="Random")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title(title)
+    plt.xlabel("False Positive Rate", fontsize=16)
+    plt.ylabel("True Positive Rate", fontsize=16)
+    plt.title(title, fontsize = 20)
     plt.legend(loc="lower right")
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches='tight')
+    plt.show()
+
+
+def plot_shapley(shap_values, X_test_transformed, feature_names):
+    # Create a figure with a desired size and tell SHAP not to show immediately.
+    plt.figure(figsize=(15, 10))
+    shap.summary_plot(shap_values, X_test_transformed, feature_names=feature_names, show=False)
+    # Adjust the subplot parameters to allocate more space to the plot area.
+    plt.subplots_adjust(left=0.3, right=0.95, top=0.95, bottom=0.2)
+
+    # Change the font size for all tick labels in every axis
+    for ax in plt.gcf().axes:
+        ax.tick_params(axis='both', which='major', labelsize=14)
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontweight('bold')
+
+    # Set a title with a custom font size
+    title = 'Shapley Values'
+    plt.title(title, fontsize=18, fontweight='bold')
+
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches='tight')
     plt.show()
