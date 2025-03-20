@@ -1,0 +1,23 @@
+import shap
+import matplotlib.pyplot as plt
+
+
+def plot_shapley(shap_values, X_test_transformed, feature_names):
+    # Create a figure with a desired size and tell SHAP not to show immediately.
+    plt.figure(figsize=(15, 10))
+    shap.summary_plot(shap_values, X_test_transformed, feature_names=feature_names, show=False)
+    # Adjust the subplot parameters to allocate more space to the plot area.
+    plt.subplots_adjust(left=0.3, right=0.95, top=0.95, bottom=0.2)
+
+    # Change the font size for all tick labels in every axis
+    for ax in plt.gcf().axes:
+        ax.tick_params(axis='both', which='major', labelsize=14)
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontweight('bold')
+
+    # Set a title with a custom font size
+    title = 'Shapley Values'
+    plt.title(title, fontsize=18, fontweight='bold')
+
+    plt.savefig(FIGURE_FPATH + title + '.png', bbox_inches='tight')
+    plt.show()
