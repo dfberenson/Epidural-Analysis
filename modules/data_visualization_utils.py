@@ -613,7 +613,7 @@ def plot_forest_colored_with_markers(
             idx,
             va='center', ha='right',
             color=c,
-            fontsize=10
+            fontsize=20
         )
 
     # Draw a vertical line at OR=1
@@ -630,7 +630,7 @@ def plot_forest_colored_with_markers(
     ax.set_title(title, fontsize=16)
 
 def show_forest_plots(patient_df, procedural_df):
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(15, 8))
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(25, 12))
 
     plot_forest_colored_with_markers(
         ax=ax1,
@@ -660,10 +660,10 @@ def show_forest_plots(patient_df, procedural_df):
 
     fig.legend(
         handles=[protect_marker, ns_marker, risk_marker],
-        loc='upper center',
+        loc='upper right',
         bbox_to_anchor=(0.5, 1.05),
         ncol=3,
-        fontsize=12
+        fontsize=18
     )
 
     plt.tight_layout()
