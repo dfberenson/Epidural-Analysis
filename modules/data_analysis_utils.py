@@ -89,7 +89,6 @@ def parse_param_name(param_name):
     # If it doesn't match, assume it's some other type of parameter (e.g., numeric var)
     return ''
 
-
 def all_regressions_each_dummy(df, outcome_col='failed_catheter'):
     """
     Fits a univariate logistic regression for each column in df (except outcome_col).
