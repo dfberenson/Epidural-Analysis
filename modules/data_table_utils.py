@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 def describe_dataframe(df):
     """
@@ -144,7 +145,9 @@ def create_table_one(cat_table, num_table):
         q1 = num_table.loc[var_name, "Q1"]
         q3 = num_table.loc[var_name, "Q3"]
 
-        summary_str = f"{median_val:.2f} [{q1:.2f} - {q3:.2f}] (NaN count: {num_table.loc[var_name, 'count_nan']})"
+        
+        # summary_str = f"{median_val:.2f} [{q1:.2f}, {q3:.2f}] (NaN count: {num_table.loc[var_name, 'count_nan']})"
+        summary_str = f"{median_val:.2f} [{q1:.2f}, {q3:.2f}]"
         table_rows.append([var_name, summary_str])
 
     # 2) Categorical variables
@@ -180,7 +183,7 @@ def create_table_one(cat_table, num_table):
                 except:
                     pass
             pct_ones = 100.0 * n_ones / total_n if total_n else 0.0
-            summary_str = f"{int(n_ones)} ({pct_ones:.2f}%)"  # cast to int if you prefer
+            summary_str = f"{int(n_ones)} ({pct_ones:.1f}%)"  # cast to int if you prefer
             table_rows.append([var_name, summary_str])  # cast to int if you prefer
         
         else:
@@ -193,7 +196,7 @@ def create_table_one(cat_table, num_table):
             for cat_val in sorted_keys:
                 n_cat = value_counts_dict[cat_val]
                 pct_cat = 100.0 * n_cat / total_n if total_n else 0.0
-                summary_str = f"{int(n_cat)} ({pct_cat:.2f}%)"  # cast to int if you prefer
+                summary_str = f"{int(n_cat)} ({pct_cat:.1f}%)"  # cast to int if you prefer
                 row_label = f"{var_name} = {cat_val}"
                 table_rows.append([row_label, summary_str])
 
@@ -324,9 +327,23 @@ def clean_table_one(df):
             return manual_map[name]
         else:
             return name
+        
+    def clean_pvalue(pval):
+        """
+        Convert p-values to a consistent format:
+        - If p < 0.001, return "< 0.001"
+        - Otherwise, return the p-value formatted to 3 decimal places
+        """
+        if pd.isna(pval):
+            return np.nan
+        elif pval < 0.001:
+            return "< 0.001"
+        else:
+            return f"{pval:.2g}"
 
     # Step 2: Apply cleaning
     df["Cleaned Name"] = df["Variable"].apply(clean_variable_name)
+    df["pvalue"] = df["pvalue"].apply(clean_pvalue)
 
     # Step 3: Define thematic categories
     categories = {
@@ -403,7 +420,7 @@ def clean_table_one(df):
 
     # Step 5: Sort and show
     df = df.sort_values(by=["Category", "Cleaned Name"])
-    df = df[["Category", "Cleaned Name", "Successful Catheters", "Failed Catheters", "All Catheters"]]
+    df = df[["Category", "Cleaned Name", "Successful Catheters", "Failed Catheters", "All Catheters","pvalue"]]
     df.reset_index(drop=True, inplace=True)
 
     category_order = [
@@ -428,3 +445,115 @@ def clean_table_one(df):
     df['Category'] = pd.Categorical(df['Category'], categories=category_order, ordered=True)
     df = df.sort_values(by=['Category', 'Cleaned Name']).reset_index(drop=True)
     return df
+
+
+
+import pandas as pd
+from scipy import stats
+
+def univariate_analysis(
+        df: pd.DataFrame,
+        outcome_col: str = "failed_catheter",
+        id_cols: tuple | list = ("anes_procedure_encounter_id_2273", "unique_pt_id"),
+        min_expected: float = 5
+    ) -> pd.DataFrame:
+    """
+    χ² / Fisher exact for categorical predictors, Welch t-test for numeric predictors.
+
+    * Categorical variables with >2 levels are exploded into one-vs-rest contrasts.
+    * Two-level categorical variables are analysed once as a 2×2 table.
+    * Numeric variables use Welch's t-test.
+
+    Returns a tidy DataFrame sorted by p-value.
+    """
+    if outcome_col not in df.columns:
+        raise KeyError(f"Outcome column '{outcome_col}' not found in df.")
+
+    # ---------------------------------------------
+    # 1. Identify categorical & numeric predictors
+    # ---------------------------------------------
+    categorical_cols, numeric_cols = [], []
+    for col in df.columns:
+        if col in id_cols or col == outcome_col:
+            continue
+        if df[col].dtype in ("object", "int64", "bool"):
+            categorical_cols.append(col)
+        elif df[col].dtype == "float64":
+            numeric_cols.append(col)
+
+    results = []
+
+    # ---------------------------------------------
+    # 2. Categorical variables
+    # ---------------------------------------------
+    for col in categorical_cols:
+        levels = df[col].dropna().unique()
+
+        # ---------- (a) Two-level factor: single 2×2 test ----------
+        if len(levels) == 2:
+            table = pd.crosstab(df[col], df[outcome_col]).reindex(
+                index=levels, columns=[0, 1], fill_value=0
+            )
+            if (table.values < min_expected).any():
+                _, p = stats.fisher_exact(table)
+                test_name, stat, dof = "Fisher exact", None, 1
+            else:
+                stat, p, dof, _ = stats.chi2_contingency(table, correction=False)
+                test_name = "chi-square"
+
+            results.append(
+                {"Variable": col,
+                 "test": test_name,
+                 "statistic": stat,
+                 "dof": dof,
+                 "pvalue": p}
+            )
+
+        # ---------- (b) >2 levels: explode into one-vs-rest ----------
+        else:
+            for level in levels:
+                mask = df[col] == level
+                table = pd.crosstab(mask, df[outcome_col]).reindex(
+                    index=[False, True], columns=[0, 1], fill_value=0
+                )
+                if (table.values < min_expected).any():
+                    _, p = stats.fisher_exact(table)
+                    test_name, stat, dof = "Fisher exact", None, 1
+                else:
+                    stat, p, dof, _ = stats.chi2_contingency(
+                        table, correction=False
+                    )
+                    test_name = "chi-square"
+
+                results.append(
+                    {"Variable": f"{col} = {level}",   # <-- spaces around =
+                     "test": test_name,
+                     "statistic": stat,
+                     "dof": dof,
+                     "pvalue": p}
+                )
+
+    # ---------------------------------------------
+    # 3. Numeric variables → Welch’s t-test
+    # ---------------------------------------------
+    for col in numeric_cols:
+        grp0 = df.loc[df[outcome_col] == 0, col].dropna()
+        grp1 = df.loc[df[outcome_col] == 1, col].dropna()
+        if len(grp0) > 1 and len(grp1) > 1:
+            t, p = stats.ttest_ind(grp0, grp1, equal_var=False, nan_policy="omit")
+            dof = len(grp0) + len(grp1) - 2
+            results.append(
+                {"Variable": col,
+                 "test": "Welch t-test",
+                 "statistic": t,
+                 "dof": dof,
+                 "pvalue": p}
+            )
+
+    # ---------------------------------------------
+    # 4. Assemble tidy results
+    # ---------------------------------------------
+    return (pd.DataFrame(results)
+              .sort_values("pvalue")
+              .reset_index(drop=True))
+

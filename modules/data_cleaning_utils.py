@@ -716,6 +716,8 @@ def engineer_categorical_variables(df):
 
     df['delivery_site'] = np.where(df['delivery_site_2188'] == 'mgb', np.nan, df['delivery_site_2188'])
     df['delivery_site_is_bwh'] = df['delivery_site'] == 'bwh'
+    df['delivery_site_is_bwh_or_mgh'] = df['delivery_site'].isin(['bwh', 'mgh'])
+    df['delivery_site_is_not_bwh_or_mgh'] = ~df['delivery_site_is_bwh_or_mgh']
     
     df['labor_induction'] = df[[
     'induction_oxytocin_2189','induction_cervical_balloon_2190','induction_misoprostol_2191','induction_arom_2192','induction_foley_easy_2193']].any(axis=1)
