@@ -37,7 +37,8 @@ def reduce_cols(df):
     'prior_pain_scores_max','paresthesias_present','number_of_neuraxial_attempts',
     'prior_failed_catheters_this_enc','prior_failed_catheters_prev_enc','prior_all_catheters_all_enc'
     ]
-    return df[reduced_cols]
+    available_cols = [col for col in reduced_cols if col in df.columns]
+    return df[available_cols]
 
 def prepend_char(df, char, chosen_default_categories=None, cols_to_ignore=None):
     for col, default_val in chosen_default_categories.items():
@@ -243,7 +244,7 @@ def preprocess_data(data):
     ##############################################################################
     groups = X['unique_pt_id']  # Save group labels
     # If you do NOT want to use `anes_procedure_encounter_id_2273` as a feature:
-    X = X.drop(columns=["unique_pt_id","anes_procedure_encounter_id_2273"])  
+    X = X.drop(columns=["unique_pt_id","anes_procedure_encounter_id_2273"],errors='ignore')  
 
     ##############################################################################
     # 2. Split using GroupShuffleSplit instead of train_test_split
@@ -327,7 +328,7 @@ def preprocess_data_for_statsmodels(data):
 
     # 2. Group-aware split
     groups = X['unique_pt_id']
-    X = X.drop(columns=["anes_procedure_encounter_id_2273","unique_pt_id"])
+    X = X.drop(columns=["anes_procedure_encounter_id_2273","unique_pt_id"],errors='ignore')  # Remove ID columns if not needed
 
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     train_idx, test_idx = next(gss.split(X, y, groups=groups))
