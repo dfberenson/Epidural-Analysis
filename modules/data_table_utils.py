@@ -18,7 +18,7 @@ def describe_dataframe(df):
         if col == "anes_procedure_encounter_id_2273" or col == "unique_pt_id":
             print(f"  Number unique: {len(df[col].unique())}")
 
-        elif col_type == 'object' or col_type == 'int64' or col_type == 'bool':
+        elif col_type == 'object' or col_type == 'int64' or col_type == 'int32' or col_type == 'bool':
             # Show unique values and their counts
             value_counts = df[col].value_counts(dropna=False)
             print("  Value counts:")
@@ -55,7 +55,7 @@ def describe_as_tables(df):
     for col in df.columns:
         if col == "anes_procedure_encounter_id_2273" or col == "unique_pt_id":
             pass
-        elif df[col].dtype == 'object' or df[col].dtype == 'int64' or df[col].dtype == 'bool':
+        elif df[col].dtype == 'object' or df[col].dtype == 'int64' or df[col].dtype == 'int32' or df[col].dtype == 'bool':
             categorical_cols.append(col)
         elif df[col].dtype == 'float64':
             numeric_cols.append(col)
@@ -476,7 +476,7 @@ def univariate_analysis(
     for col in df.columns:
         if col in id_cols or col == outcome_col:
             continue
-        if df[col].dtype in ("object", "int64", "bool"):
+        if df[col].dtype in ("object", "int64","int32", "bool"):
             categorical_cols.append(col)
         elif df[col].dtype == "float64":
             numeric_cols.append(col)

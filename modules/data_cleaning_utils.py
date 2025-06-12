@@ -631,6 +631,13 @@ def engineer_categorical_variables(df):
         'icd_spondylopathies_and_deforming_dorsopathies_2095',
         'icd_intervertebral_disc_disorders_2098',
         'icd_ehlers_minus_danlos_2101',
+        "icd_spondylitis_icd_minus_9_720_2234",
+        "icd_spondylosis_icd_minus_9_721_2235",
+        "icd_other_dorsopathies_icd_minus_9_724_2236",
+        "icd_other_dorsopathies_icd_minus_10_m43_2237",
+        "icd_spondylitis_icd_minus_10_m45_minus_46_2238",
+        "icd_spondylosis_icd_minus_10_m47_2239",
+        "icd_other_spondylopathies_idc_minus_10_m48_minus_2240"
     ]
 
     # Note that spondyolopathies_and_deforming_dorsopathies are by far the biggest contributors
