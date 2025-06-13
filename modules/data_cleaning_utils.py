@@ -522,7 +522,7 @@ def engineer_unexpected_delta_LOR(df):
     return df
     
 
-def calculate_and_narrow_time_from_placement_to_delivery(df):
+def calculate_and_narrow_time_from_placement_to_delivery(df, hours_before_delivery = 7*24, hours_after_delivery = 1):
     """
     From my analyses, procedures where many days elapse between placement and delivery are NOT labor analgesia procedures.
     They can be totally unrelated procedures like knee surgery, or obstetrical procedures like ECVs, or (rarely) analgesia for false labor.
@@ -539,7 +539,7 @@ def calculate_and_narrow_time_from_placement_to_delivery(df):
     df['placement_to_delivery_hours'] = (df['delivery_datetime'] - df['best_timestamp']).dt.total_seconds() / 3600
     print('Before adjustment:')
     print(df['placement_to_delivery_hours'].describe(percentiles=[0.01,0.02,0.05,0.25,0.5,0.75,0.95,0.97,0.98,0.99]))
-    df['placement_to_delivery_hours'] = np.where((df['placement_to_delivery_hours'] > -1) & (df['placement_to_delivery_hours'] <= 7*24),
+    df['placement_to_delivery_hours'] = np.where((df['placement_to_delivery_hours'] > -hours_after_delivery) & (df['placement_to_delivery_hours'] <= hours_before_delivery),
                                              df['placement_to_delivery_hours'], np.nan)
     print('After adjustment:')
     print(df['placement_to_delivery_hours'].describe(percentiles=[0.01,0.05,0.25,0.5,0.75,0.95,0.97,0.98,0.99]))
